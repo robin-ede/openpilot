@@ -33,7 +33,7 @@ runs:
       id: python-cache
       uses: actions/cache@v4
       with:
-        path: ~/.venv
+        path: .venv
         key: python-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-v2
         restore-keys: |
           python-${{ runner.os }}-
@@ -87,9 +87,9 @@ runs:
         echo 'MAKEFLAGS=-j2' >> $GITHUB_ENV
         
         # Activate Python virtual environment
-        if [ -f ~/.venv/bin/activate ]; then
-          echo 'VIRTUAL_ENV=~/.venv' >> $GITHUB_ENV
-          echo '~/.venv/bin' >> $GITHUB_PATH
+        if [ -f .venv/bin/activate ]; then
+          echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
         fi
 
     # Normalize file permissions for consistency (kept for compatibility)
