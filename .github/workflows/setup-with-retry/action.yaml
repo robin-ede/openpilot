@@ -25,26 +25,53 @@ runs:
     - id: start_time
       shell: bash
       run: echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
-    - id: setup1
-      uses: ${{ inputs.use_native_setup == 'true' && './.github/workflows/setup-native-optimized' || './.github/workflows/setup' }}
+    # Native setup attempts
+    - id: setup1-native
+      if: inputs.use_native_setup == 'true'
+      uses: ./.github/workflows/setup-native-optimized
       continue-on-error: true
       with:
         is_retried: true
-    - if: steps.setup1.outcome == 'failure'
-      shell: bash
-      run: sleep ${{ inputs.sleep_time }}
-    - id: setup2
-      if: steps.setup1.outcome == 'failure'
-      uses: ${{ inputs.use_native_setup == 'true' && './.github/workflows/setup-native-optimized' || './.github/workflows/setup' }}
+    - id: setup1-docker
+      if: inputs.use_native_setup != 'true'
+      uses: ./.github/workflows/setup
       continue-on-error: true
       with:
         is_retried: true
-    - if: steps.setup2.outcome == 'failure'
+    
+    # Sleep before retry if first attempt failed
+    - if: (steps.setup1-native.outcome == 'failure' && inputs.use_native_setup == 'true') || (steps.setup1-docker.outcome == 'failure' && inputs.use_native_setup != 'true')
       shell: bash
       run: sleep ${{ inputs.sleep_time }}
-    - id: setup3
-      if: steps.setup2.outcome == 'failure'
-      uses: ${{ inputs.use_native_setup == 'true' && './.github/workflows/setup-native-optimized' || './.github/workflows/setup' }}
+    
+    # Second attempt
+    - id: setup2-native
+      if: inputs.use_native_setup == 'true' && steps.setup1-native.outcome == 'failure'
+      uses: ./.github/workflows/setup-native-optimized
+      continue-on-error: true
+      with:
+        is_retried: true
+    - id: setup2-docker
+      if: inputs.use_native_setup != 'true' && steps.setup1-docker.outcome == 'failure'
+      uses: ./.github/workflows/setup
+      continue-on-error: true
+      with:
+        is_retried: true
+        
+    # Sleep before final retry if second attempt failed
+    - if: (steps.setup2-native.outcome == 'failure' && inputs.use_native_setup == 'true') || (steps.setup2-docker.outcome == 'failure' && inputs.use_native_setup != 'true')
+      shell: bash
+      run: sleep ${{ inputs.sleep_time }}
+      
+    # Final attempt
+    - id: setup3-native
+      if: inputs.use_native_setup == 'true' && steps.setup2-native.outcome == 'failure'
+      uses: ./.github/workflows/setup-native-optimized
+      with:
+        is_retried: true
+    - id: setup3-docker
+      if: inputs.use_native_setup != 'true' && steps.setup2-docker.outcome == 'failure'
+      uses: ./.github/workflows/setup
       with:
         is_retried: true
     - id: get_duration
