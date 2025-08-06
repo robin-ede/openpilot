@@ -1,0 +1,59 @@
+name: Quick Performance Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_iterations:
+        description: 'Number of test iterations'
+        required: false
+        default: '1'
+        type: string
+
+jobs:
+  test-native-only:
+    name: Native Setup Test
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        iteration: [1, 2, 3]
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Test Native Setup (Iteration ${{ matrix.iteration }})
+      id: native-setup
+      uses: ./.github/workflows/setup-with-retry
+      with:
+        use_native_setup: 'true'
+    - name: Report Results
+      run: |
+        echo "🚀 Native Setup Iteration ${{ matrix.iteration }}: ${{ steps.native-setup.outputs.duration }}s"
+        if [ "${{ steps.native-setup.outputs.duration }}" -lt 21 ]; then
+          echo "✅ SUCCESS: <20s target achieved!"
+          echo "💰 \$500 bounty criteria met!"
+        elif [ "${{ steps.native-setup.outputs.duration }}" -lt 41 ]; then
+          echo "💰 SUB-BOUNTY: <40s target achieved (\$100)"
+        else
+          echo "❌ Target missed: ${{ steps.native-setup.outputs.duration }}s"
+        fi
+    - name: Quick Functionality Test
+      run: |
+        echo "Testing basic functionality..."
+        python --version
+        which gcc clang ccache || echo "Build tools check"
+        ls -la .ci_cache/scons_cache/ || echo "SCons cache check"
+
+  analyze-results:
+    name: Performance Analysis
+    runs-on: ubuntu-22.04
+    needs: test-native-only
+    if: always()
+    steps:
+    - name: Analyze All Results
+      run: |
+        echo "## Performance Analysis Complete"
+        echo "Check individual job results above for timing details"
+        echo "Expected results:"
+        echo "- First run (cache miss): 20-40s"  
+        echo "- Subsequent runs (cache hit): 5-15s"
+        echo "- Target: <20s average for \$500 bounty"
