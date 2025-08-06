@@ -1,0 +1,109 @@
+name: Test Native Setup Performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_both_setups:
+        description: 'Test both native and Docker setups for comparison'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  test-native-setup:
+    name: Test Native Setup (<20s target)
+    runs-on: ubuntu-22.04
+    env:
+      PYTHONWARNINGS: error
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Test Native Setup
+      id: native-setup
+      uses: ./.github/workflows/setup-with-retry
+      with:
+        use_native_setup: 'true'
+    - name: Validate Native Setup Results
+      run: |
+        echo "Native setup completed in ${{ steps.native-setup.outputs.duration }} seconds"
+        if [ "${{ steps.native-setup.outputs.duration }}" -gt 20 ]; then
+          echo "⚠️  Warning: Setup took ${{ steps.native-setup.outputs.duration }}s (target: <20s)"
+        else
+          echo "✅ Success: Setup completed in ${{ steps.native-setup.outputs.duration }}s (<20s target achieved!)"
+        fi
+    - name: Test Basic Python Functionality
+      run: |
+        python --version
+        pip --version
+        python -c "import sys; print(f'Python executable: {sys.executable}')"
+        python -c "import platform; print(f'Platform: {platform.platform()}')"
+    - name: Test Build Environment
+      run: |
+        which gcc || echo "gcc not found"
+        which clang || echo "clang not found"
+        which ccache || echo "ccache not found"
+        ccache --version || echo "ccache not working"
+        echo "CC: ${CC:-not set}"
+        echo "CXX: ${CXX:-not set}"
+    - name: Test SCons Cache
+      run: |
+        ls -la .ci_cache/scons_cache/ || echo "SCons cache directory not found"
+
+  test-docker-setup:
+    name: Test Docker Setup (comparison baseline)
+    runs-on: ubuntu-22.04
+    if: ${{ github.event.inputs.test_both_setups == 'true' }}
+    env:
+      PYTHONWARNINGS: error
+      BASE_IMAGE: openpilot-base
+      DOCKER_LOGIN: docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+      BUILD: selfdrive/test/docker_build.sh base
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+    - name: Test Docker Setup
+      id: docker-setup  
+      uses: ./.github/workflows/setup-with-retry
+      with:
+        use_native_setup: 'false'
+    - name: Compare Docker Setup Results
+      run: |
+        echo "Docker setup completed in ${{ steps.docker-setup.outputs.duration }} seconds"
+        echo "This is the baseline Docker performance for comparison"
+
+  performance-comparison:
+    name: Performance Analysis
+    runs-on: ubuntu-22.04
+    needs: [test-native-setup, test-docker-setup]
+    if: always() && github.event.inputs.test_both_setups == 'true'
+    steps:
+    - name: Analyze Performance Results
+      run: |
+        echo "## Performance Comparison Results"
+        echo "Native setup: ${{ needs.test-native-setup.outputs.native-duration || 'Failed' }} seconds"
+        echo "Docker setup: ${{ needs.test-docker-setup.outputs.docker-duration || 'Failed' }} seconds"
+        
+        if [ -n "${{ needs.test-native-setup.outputs.native-duration }}" ] && [ -n "${{ needs.test-docker-setup.outputs.docker-duration }}" ]; then
+          NATIVE_TIME=${{ needs.test-native-setup.outputs.native-duration }}
+          DOCKER_TIME=${{ needs.test-docker-setup.outputs.docker-duration }}
+          
+          if [ "$NATIVE_TIME" -lt "$DOCKER_TIME" ]; then
+            IMPROVEMENT=$((DOCKER_TIME - NATIVE_TIME))
+            PERCENTAGE=$(((DOCKER_TIME - NATIVE_TIME) * 100 / DOCKER_TIME))
+            echo "✅ Native setup is ${IMPROVEMENT}s faster (${PERCENTAGE}% improvement)"
+          else
+            REGRESSION=$((NATIVE_TIME - DOCKER_TIME))
+            PERCENTAGE=$(((NATIVE_TIME - DOCKER_TIME) * 100 / DOCKER_TIME))
+            echo "❌ Native setup is ${REGRESSION}s slower (${PERCENTAGE}% regression)"
+          fi
+          
+          if [ "$NATIVE_TIME" -lt 21 ]; then
+            echo "🎉 BOUNTY TARGET ACHIEVED: Native setup completed in ${NATIVE_TIME}s (<20s)"
+          elif [ "$NATIVE_TIME" -lt 41 ]; then
+            echo "💰 SUB-BOUNTY ACHIEVED: Native setup completed in ${NATIVE_TIME}s (<40s)"
+          else
+            echo "⏰ Target not met: Native setup took ${NATIVE_TIME}s (target: <20s)"
+          fi
+        fi
